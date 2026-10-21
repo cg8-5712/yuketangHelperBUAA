@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>雨课堂助手 · 多账号</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/vue.global.prod.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<div id="app" v-cloak>
+  <header class="topbar">
+    <div><span class="logo">YT</span><strong>雨课堂助手</strong><span class="muted">/ 多账号工作台</span></div>
+    <span class="badge">本地运行 · 127.0.0.1</span>
+  </header>
+  <main>
+    <section class="intro">
+      <div><p class="eyebrow">WORKSPACE</p><h1>多个账号，一起看进度</h1><p>每个账号单独登录、单独运行。先添加 Cookie，再选择课程启动。</p></div>
+      <div class="stat"><strong>{{ activeCount }}</strong><span>运行中账号</span></div>
+    </section>
+
+    <div v-if="notice" class="notice" :class="noticeType">{{ notice }}</div>
+
+    <div v-if="qrLogin.open" class="modal-backdrop">
+      <section class="modal panel">
+        <div class="panel-head"><div><p class="eyebrow">QR LOGIN</p><h2>扫码添加账号</h2></div><button class="link" @click="cancelQRLogin">关闭</button></div>
+        <div v-if="!qrLogin.id" class="form">
+          <label>账号备注<input v-model.trim="qrLogin.label" placeholder="例如：我的账号" maxlength="80"></label>
+          <label>学校域名<input v-model.trim="qrLogin.domain" placeholder="buu.yuketang.cn" required></label>
+          <button class="primary" @click="startQRLogin" :disabled="busy">获取二维码</button>
+        </div>
+        <div v-else class="qr-login-content">
+          <p class="hint">{{ qrLogin.status }}<span v-if="qrLogin.domain"> · {{ qrLogin.domain }}</span></p>
+          <img v-if="qrLogin.qr_image" class="qr-image" :src="qrLogin.qr_image" alt="雨课堂登录二维码">
+          <div v-else class="qr-placeholder">正在连接登录服务...</div>
+          <p v-if="qrLogin.error" class="error">{{ qrLogin.error }}</p>
+          <div class="modal-actions"><button class="secondary" @click="cancelQRLogin">取消</button><button v-if="qrLogin.status === '完成'" class="primary" @click="finishQRLogin">完成</button></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-head"><div><p class="eyebrow">01 / ACCOUNTS</p><h2>账号管理</h2></div><div class="panel-actions"><span>{{ accounts.length }} 个账号</span><button class="secondary compact" @click="openQRLogin">扫码添加</button></div></div>
+        <form class="form" @submit.prevent="addAccount">
+          <label>账号备注<input v-model.trim="newAccount.label" placeholder="例如：我的账号" required maxlength="80"></label>
+          <label>学校域名<input v-model.trim="newAccount.domain" placeholder="buu.yuketang.cn" required></label>
+          <label>Cookie<textarea v-model.trim="newAccount.cookie" rows="3" placeholder="粘贴 csrftoken 和 sessionid" required></textarea></label>
+          <button class="primary" :disabled="busy">添加账号</button>
+          <small>Cookie 只保存在本机 .accounts 目录，页面不会回显。</small>
+        </form>
+        <div class="account-list">
+          <article class="account" v-for="account in accounts" :key="account.id">
+            <div class="account-top"><label><input type="checkbox" v-model="selected" :value="account.id"><strong>{{ account.label }}</strong></label><button class="link danger" @click="removeAccount(account.id)">删除</button></div>
+            <p>{{ account.domain }}</p>
+            <div class="chips"><span :title="account.user_agent">UA 已分配</span><span>{{ account.proxy }}</span></div>
+            <button class="link" @click="loadCourses(account.id)">查看课程</button> <button class="link" @click="editing = editing === account.id ? '' : account.id">更新 Cookie</button>
+            <div v-if="editing === account.id" class="cookie-edit"><textarea v-model.trim="replacementCookie" rows="3" placeholder="粘贴新的 csrftoken 和 sessionid"></textarea><button class="secondary" @click="updateCookie(account.id)">保存 Cookie</button></div>
+            <div v-if="courseLists[account.id]" class="course-list"><span v-for="course in courseLists[account.id]" :key="course.id">{{ course.name }}</span></div>
+          </article>
+          <p v-if="!accounts.length" class="empty">还没有账号。添加后就能选择并启动。</p>
+        </div>
+      </div>
+
+      <div class="stack">
+        <section class="panel">
+          <div class="panel-head"><div><p class="eyebrow">02 / RUN</p><h2>启动任务</h2></div><span>最多 8 个账号</span></div>
+          <p class="hint">选中左侧账号后启动。同一账号不会重复运行；每个账号内部使用 4 个视频 worker。</p>
+          <label>课程范围<select v-model="courseId"><option value="">全部课程</option><option v-for="course in commonCourses" :key="course.id" :value="course.id">{{ course.name }}</option></select></label>
+          <p class="hint">单门课程选项来自所选账号共有的课程；先点“查看课程”加载。</p>
+          <label class="inline"><input type="checkbox" v-model="doHomework"> 视频后完成选择题和填空题</label>
+          <label v-if="doHomework">AI 接口<select v-model="apiMode"><option value="chat_completions">Chat Completions</option><option value="responses">Responses</option></select></label>
+          <p v-if="doHomework" class="hint">需要根目录 config.json；讨论题需人工确认，网页任务会跳过。</p>
+          <button class="primary wide" @click="startTasks" :disabled="busy || !selected.length">启动 {{ selected.length }} 个账号</button>
+        </section>
+        <section class="panel">
+          <div class="panel-head"><div><p class="eyebrow">03 / NETWORK</p><h2>UA 与代理池</h2></div><span>按账号固定分配</span></div>
+          <label>User-Agent 池<textarea v-model="uaText" rows="5" placeholder="每行一个 UA"></textarea></label>
+          <label>代理池<textarea v-model="proxyText" rows="4" placeholder="每行一个 http://host:port；留空使用本机网络"></textarea></label>
+          <button class="secondary" @click="savePools" :disabled="busy">保存池设置</button>
+          <p class="hint">代理地址决定实际出口 IP；修改 UA 不会改变 IP。池设置只影响新启动的任务。</p>
+        </section>
+      </div>
+    </section>
+
+    <section class="panel tasks">
+      <div class="panel-head"><div><p class="eyebrow">04 / LIVE</p><h2>实时任务</h2></div><span>每 2 秒刷新</span></div>
+      <div v-if="!tasks.length" class="empty">任务会显示在这里。</div>
+      <article v-for="task in tasks" :key="task.id" class="task">
+        <div class="task-head"><div><strong>{{ task.label }}</strong><span class="muted">{{ task.course || '准备课程...' }}</span></div><div><span class="status" :class="statusClass(task.status)">{{ task.status }}</span><button v-if="active(task)" class="link danger" @click="stopTask(task.id)">停止</button></div></div>
+        <p v-if="task.error" class="error">{{ task.error }}</p>
+        <div class="workers"><div v-for="worker in ['Worker1','Worker2','Worker3','Worker4']" :key="worker" class="worker"><span>{{ worker }}</span><span class="video-name">{{ task.workers[worker]?.video || '待命' }}</span><div class="track"><div class="fill" :style="{width: Math.round((task.workers[worker]?.progress || 0) * 100) + '%'}"></div></div><span class="worker-detail">{{ task.workers[worker]?.status || '待命' }} {{ task.workers[worker]?.detail || '' }}</span></div></div>
+      </article>
+    </section>
+  </main>
+</div>
+</body>
+</html>
