@@ -77,12 +77,12 @@ class videoHelper:
         except Exception as exc:
             duration = float(media.get("duration") or media.get("video_length") or 0)
             debug(f"{video_name} mvhd 解析失败，回退 media 字段：{exc}")
-        if self.debug:
-            debug(f"{video_name} media={media}")
-            debug(f"{video_name} ccid={ccid}, duration={duration}, pg={pg_data}")
         pg_data = f"{video_id}_" + "".join(
             random.sample("zyxwvutsrqponmlkjihgfedcba1234567890", 5)
         )
+        if self.debug:
+            debug(f"{video_name} media={media}")
+            debug(f"{video_name} ccid={ccid}, duration={duration}, pg={pg_data}")
         t = time.time()
         heart_data = []
         sq = 1
@@ -113,6 +113,7 @@ class videoHelper:
             data = {"heart_data": heart_data}
             if self.stop_event.is_set():
                 return 0
+            response_text = self.videos.heartbeat(data)
             if self.debug:
                 debug(f"{video_name} heartbeat payload={data}")
                 debug(f"{video_name} heartbeat response={response_text[:500]}")
