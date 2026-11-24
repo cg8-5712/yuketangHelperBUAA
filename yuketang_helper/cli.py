@@ -1,8 +1,9 @@
 """Interactive command line entry point."""
 
+import argparse
 from pathlib import Path
 
-from .logging import log
+from .logging import DEBUG, debug, log
 from .platform.auth import extract_specific_cookies, getCookies, getUniversityId
 from .platform.client import PlatformClient, PlatformError
 from .platform.courses import CourseAPI
@@ -32,6 +33,10 @@ def build_headers(cookies, university_id):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="雨课堂助手")
+    parser.add_argument("--debug", action="store_true", help="打印心跳、响应和媒体信息")
+    args = parser.parse_args()
+    DEBUG = args.debug
     domain = ask_text("雨课堂域名", "aibuaa.yuketang.cn")
     filename = ask_text("Cookie 文件名（不含 .txt）", "cookies")
     from .config import PROJECT_ROOT
@@ -64,6 +69,9 @@ def main():
     except (PlatformError, KeyError, TypeError):
         log("获取用户信息失败，继续选择课程", level="Warning")
 
+    if DEBUG:
+        debug("university_id =", university_id)
+        debug("user_id =", user_id)
     course_index = choose("选择课程", ["全部课程"] + [course.course_name for course in courses])
     selected = courses if course_index == 0 else [courses[course_index - 1]]
     do_homework = choose("作业", ["跳过", "使用 AI 答题"]) == 1
@@ -76,7 +84,7 @@ def main():
             client=client,
         )
 
-    video = videoHelper(domain, cookies, user_id, university_id, 12, headers, client=client)
+    video = videoHelper(domain, cookies, user_id, university_id, 12, headers, client=client, debug=args.debug)
     all_complete = True
     for course in selected:
         videos = video.get_videos_ids(course.course_name, course.classroom_id, course.course_sign)

@@ -6,6 +6,12 @@ from rich.console import Console
 
 _output_lock = threading.Lock()
 console = Console()
+DEBUG = False
+
+
+def debug(*values):
+    if DEBUG:
+        log(*values, level="Debug")
 
 
 def log(*values, level="Info"):

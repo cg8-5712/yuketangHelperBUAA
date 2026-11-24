@@ -6,7 +6,7 @@ import random
 import time
 import re
 import threading
-from ..logging import log, wait_for_platform
+from ..logging import debug, log, wait_for_platform
 from ..platform.client import PlatformClient
 from ..platform.courses import CourseAPI
 from ..platform.video import VideoAPI
@@ -19,7 +19,7 @@ class VideoTaskError(RuntimeError):
 
 # 以下字段不用改，下面的代码也不用改动
 class videoHelper:
-    def __init__(self, domain, cookies, user_id, university_id, learning_rate, header, client=None):
+    def __init__(self, domain, cookies, user_id, university_id, learning_rate, header, client=None, debug=False):
 
         self.domain = domain
         self.cookies = cookies
@@ -27,6 +27,7 @@ class videoHelper:
         self.learning_rate = learning_rate
         self.university_id = university_id
         self.headers = header
+        self.debug = debug
         self.client = client or PlatformClient(domain, university_id, header)
         self.courses = CourseAPI(self.client)
         self.videos = VideoAPI(self.client)
@@ -70,7 +71,15 @@ class videoHelper:
 
         media = self.video_media(classroomid, video_id)
         ccid = str(media.get("ccid") or media.get("cc") or video_id)
-        duration = float(media.get("duration") or media.get("video_length") or 0)
+        duration = 0.0
+        try:
+            duration = float(self.videos.mp4_duration(self.videos.playurl(ccid)))
+        except Exception as exc:
+            duration = float(media.get("duration") or media.get("video_length") or 0)
+            debug(f"{video_name} mvhd 解析失败，回退 media 字段：{exc}")
+        if self.debug:
+            debug(f"{video_name} media={media}")
+            debug(f"{video_name} ccid={ccid}, duration={duration}, pg={pg_data}")
         pg_data = f"{video_id}_" + "".join(
             random.sample("zyxwvutsrqponmlkjihgfedcba1234567890", 5)
         )
@@ -84,18 +93,19 @@ class videoHelper:
             now_ms = int(time.time() * 1000)
             seq = sq
             heart_data = []
-            for et, cp, event_tp in [
-                ("loadstart", base, 0),
-                ("play", base, tp),
-                ("playing", base, tp),
-            ]:
+            event_specs = [
+                ("loadstart", base, 0, now_ms),
+                ("play", base, tp, now_ms + 300),
+                ("playing", base, tp, now_ms + 400),
+            ]
+            for et, cp, event_tp, event_ts in event_specs:
                 heart_data.append(self.make_heartbeat(
-                    now_ms, seq, et, cp, event_tp, duration, ccid, pg_data,
+                    event_ts, seq, et, cp, event_tp, duration, ccid, pg_data,
                     cid, user_id, classroomid, skuid, video_id,
                 ))
                 seq += 1
             heart_data.append(self.make_heartbeat(
-                now_ms, seq, "heartbeat", base + self.learning_rate, tp, duration,
+                now_ms + 5000, seq, "heartbeat", base + self.learning_rate, tp, duration,
                 ccid, pg_data, cid, user_id, classroomid, skuid, video_id,
             ))
             seq += 1
@@ -103,7 +113,9 @@ class videoHelper:
             data = {"heart_data": heart_data}
             if self.stop_event.is_set():
                 return 0
-            response_text = self.videos.heartbeat(data)
+            if self.debug:
+                debug(f"{video_name} heartbeat payload={data}")
+                debug(f"{video_name} heartbeat response={response_text[:500]}")
             match = re.search(
                 r"Expected available in\s*(\d+(?:\.\d+)?)\s*seconds?", response_text
             )
@@ -125,6 +137,8 @@ class videoHelper:
                 if self.stop_event.wait(0.5):
                     return 0
                 response_text = self.videos.heartbeat(data)
+                if self.debug:
+                    debug(f"{video_name} retry heartbeat response={response_text[:500]}")
                 match = re.search(
                     r"Expected available in\s*(\d+(?:\.\d+)?)\s*seconds?", response_text
                 )
@@ -133,6 +147,8 @@ class videoHelper:
             if self.stop_event.is_set():
                 return 0
             progress = self.videos.progress(cid, user_id, classroomid, video_id, self.stop_event)
+            if self.debug:
+                debug(f"{video_name} progress={progress}")
             new_rate = progress.get("rate")
             if new_rate is None:
                 if dashboard:
@@ -187,7 +203,7 @@ class videoHelper:
             "skuid": skuid,
             "classroomid": classroomid,
             "cc": ccid,
-            "d": round(float(duration), 1) if duration else 0,
+            "d": 0 if et == "loadstart" else round(float(duration), 1),
             "pg": pg_data,
             "sq": sq,
             "t": "video",
