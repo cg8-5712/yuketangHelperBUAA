@@ -8,7 +8,7 @@ from .platform.client import PlatformClient, PlatformError
 from .platform.courses import CourseAPI
 from .ui import ask_text, choose
 from .workflows.homework import homeworkHelper
-from .workflows.video import videoHelper
+from .workflows.video import VideoTaskError, videoHelper
 
 
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -80,10 +80,14 @@ def main():
     all_complete = True
     for course in selected:
         videos = video.get_videos_ids(course.course_name, course.classroom_id, course.course_sign)
-        complete = video.multiple_watch_video(
-            videos, course.course_id, user_id, course.classroom_id, course.sku_id,
-            course_name=course.course_name,
-        )
+        try:
+            complete = video.multiple_watch_video(
+                videos, course.course_id, user_id, course.classroom_id, course.sku_id,
+                course_name=course.course_name,
+            )
+        except VideoTaskError as exc:
+            log(f"{course.course_name} 视频任务已停止：{exc}", level="Error")
+            raise SystemExit(1) from None
         all_complete = all_complete and complete
     if homework is not None:
         for course in selected:

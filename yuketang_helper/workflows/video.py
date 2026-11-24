@@ -12,6 +12,11 @@ from ..platform.courses import CourseAPI
 from ..platform.video import VideoAPI
 from ..ui import VideoDashboard
 
+
+class VideoTaskError(RuntimeError):
+    """A worker failed while processing the video queue."""
+
+
 # 以下字段不用改，下面的代码也不用改动
 class videoHelper:
     def __init__(self, domain, cookies, user_id, university_id, learning_rate, header, client=None):
@@ -59,45 +64,42 @@ class videoHelper:
             return 0
         val = float(tmp_rate)
         video_frame = progress.get("watch_length", 0)
+        watch_length_at_last_increase = progress.get("watch_length")
         if dashboard:
             dashboard.update(status="学习中", progress=val, detail=f"{val:.0%}")
 
+        media = self.video_media(classroomid, video_id)
+        ccid = str(media.get("ccid") or media.get("cc") or video_id)
+        duration = float(media.get("duration") or media.get("video_length") or 0)
+        pg_data = f"{video_id}_" + "".join(
+            random.sample("zyxwvutsrqponmlkjihgfedcba1234567890", 5)
+        )
         t = time.time()
-        timstap = int(round(t * 1000))
         heart_data = []
+        sq = 1
         stagnant_rounds = 0
         while val <= 0.95 and not self.stop_event.is_set():
-            for i in range(3):
-                heart_data.append(
-                    {
-                        "i": 5,
-                        "et": "loadeddata",
-                        "p": "web",
-                        "n": "ali-cdn.xuetangx.com",
-                        "lob": "cloud4",
-                        "cp": video_frame,
-                        "fp": 0,
-                        "tp": 0,
-                        "sp": 2,
-                        "ts": str(timstap),
-                        "u": int(user_id),
-                        "uip": "",
-                        "c": cid,
-                        "v": int(video_id),
-                        "skuid": skuid,
-                        "classroomid": classroomid,
-                        "cc": video_id,
-                        "d": 4976.5,
-                        "pg": video_id
-                        + "_"
-                        + "".join(
-                            random.sample("zyxwvutsrqponmlkjihgfedcba1234567890", 4)
-                        ),
-                        "sq": i + 1,
-                        "t": "video",
-                    }
-                )
-                video_frame += self.learning_rate
+            base = float(video_frame)
+            tp = base if sq > 1 else 0
+            now_ms = int(time.time() * 1000)
+            seq = sq
+            heart_data = []
+            for et, cp, event_tp in [
+                ("loadstart", base, 0),
+                ("play", base, tp),
+                ("playing", base, tp),
+            ]:
+                heart_data.append(self.make_heartbeat(
+                    now_ms, seq, et, cp, event_tp, duration, ccid, pg_data,
+                    cid, user_id, classroomid, skuid, video_id,
+                ))
+                seq += 1
+            heart_data.append(self.make_heartbeat(
+                now_ms, seq, "heartbeat", base + self.learning_rate, tp, duration,
+                ccid, pg_data, cid, user_id, classroomid, skuid, video_id,
+            ))
+            seq += 1
+            sq = seq
             data = {"heart_data": heart_data}
             if self.stop_event.is_set():
                 return 0
@@ -109,10 +111,10 @@ class videoHelper:
             while match and not self.stop_event.is_set():
                 limits += 1
                 if limits > 5:
-                    raise RuntimeError(f"视频 {video_id} 连续限流超过 5 次")
+                    raise VideoTaskError(f"视频 {video_id} 连续限流超过 5 次")
                 delay = float(match.group(1))
                 if dashboard:
-                    dashboard.update(status="平台限制，等待", progress=0, detail=f"{delay:.0f} s")
+                    dashboard.update(status="平台限制，等待", progress=float(val), detail=f"{delay:.0f} s")
                 on_tick = (lambda remaining, total: dashboard.update(
                     status="平台限制，等待", progress=1 - remaining / total if total else 1,
                     detail=f"{remaining:.0f} s")) if dashboard else None
@@ -122,12 +124,11 @@ class videoHelper:
                     dashboard.update(status="学习中", progress=float(val), detail=f"{float(val):.0%}")
                 if self.stop_event.wait(0.5):
                     return 0
-                if self.stop_event.is_set():
-                    return 0
                 response_text = self.videos.heartbeat(data)
                 match = re.search(
                     r"Expected available in\s*(\d+(?:\.\d+)?)\s*seconds?", response_text
                 )
+            video_frame = base + self.learning_rate
             heart_data = []
             if self.stop_event.is_set():
                 return 0
@@ -138,9 +139,16 @@ class videoHelper:
                     dashboard.update(status="无进度数据", detail="")
                 return 0
             new_rate = float(new_rate)
+            reported_length = progress.get("watch_length")
+            if new_rate > val:
+                watch_length_at_last_increase = reported_length
             stagnant_rounds = stagnant_rounds + 1 if new_rate <= val else 0
             if stagnant_rounds >= 10:
-                raise RuntimeError(f"视频 {video_id} 连续 10 次心跳后进度未增加")
+                raise VideoTaskError(
+                    f"视频 {video_id} 连续 {stagnant_rounds} 轮进度未增加，"
+                    f"平台返回 rate={new_rate:.2%}，"
+                    f"watch_length 从 {watch_length_at_last_increase} 变为 {reported_length}"
+                )
             val = new_rate
             if dashboard:
                 dashboard.update(status="学习中", progress=val, detail=f"{val:.0%}")
@@ -154,6 +162,39 @@ class videoHelper:
             dashboard.update(status="已完成", progress=1, detail="100%")
         log("视频" + video_id + " " + video_name + "学习完成！")
         return 1
+
+    def video_media(self, classroomid, video_id):
+        info = self.courses.leaf_info(classroomid, video_id)
+        return info.get("content_info", {}).get("media", {}) or {}
+
+    def make_heartbeat(self, now_ms, sq, et, cp, tp, duration, ccid, pg_data,
+                       cid, user_id, classroomid, skuid, video_id):
+        return {
+            "i": 5,
+            "et": et,
+            "p": "web",
+            "n": "ali-cdn.xuetangx.com",
+            "lob": "cloud4",
+            "cp": round(float(cp), 1),
+            "fp": 0,
+            "tp": round(float(tp), 1),
+            "sp": 1,
+            "ts": str(now_ms),
+            "u": int(user_id),
+            "uip": "",
+            "c": cid,
+            "v": int(video_id),
+            "skuid": skuid,
+            "classroomid": classroomid,
+            "cc": ccid,
+            "d": round(float(duration), 1) if duration else 0,
+            "pg": pg_data,
+            "sq": sq,
+            "t": "video",
+            "cards_id": 0,
+            "slide": 0,
+            "v_url": "",
+        }
 
     def get_videos_ids(self, course_name, classroom_id, course_sign):
         leaves = self.courses.leaves(classroom_id, course_sign, 0)
@@ -238,5 +279,6 @@ class videoHelper:
             if not threads:
                 log("本课程没有视频任务")
         if self._worker_errors:
-            raise RuntimeError("视频任务失败") from self._worker_errors[0]
+            cause = self._worker_errors[0]
+            raise VideoTaskError(str(cause)) from cause
         return self._incomplete == 0
