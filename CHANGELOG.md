@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-11-27 — 支持期末考试自动作答
+
+### 背景
+期末考试在章节列表中为 `leaf_type: 5`，答题走独立域名 `changjiang-exam.yuketang.cn` 的 `/exam_room/*` 接口，与作业的 `/mooc-api/v1/lms/exercise/*` 完全不同。原有作业流程只读 `leaf_type 6`，因此期末考试从未进入答题流程。
+
+### 新增
+- 新增 `yuketang_helper/platform/exam.py`：
+  - `show_paper` 取卷（含字体解密）
+  - `entry_info` 读取考试信息
+  - `start_paper` 开考
+  - `answer_problem` 逐题保存答案
+  - `submit_paper` 交卷
+  - 统一解析 `errcode`/`errmsg`
+- 新增 `yuketang_helper/workflows/exam.py`：
+  - 按 `leaf_type 5` 遍历考试，跳过已结束/已评分的考试
+  - 支持单选、多选、判断、填空、简答、投票题型
+  - 选项字母与平台 `Options[].key` 自动映射，避免答案错位
+  - 复用本地题库与 AI 生成答案，题库命中不请求 AI
+  - 保存失败即停止并跳过交卷，避免交白卷
+- CLI 新增考试选择：跳过 / 只答已开始的考试 / 允许自动开始考试
+- WebUI 新增考试下拉框与 `exam_mode` 参数
+
+### 注意
+- 默认不自动开考，因为开考会启动考试计时；需要时在 CLI 或 WebUI 中选择“允许自动开始考试”。
+- 主观题只提交 AI 文本，不含附件与图片。
+
+
 ## 2026-11-25 — 适配雨课堂 AI 版新版视频心跳
 
 ### 背景

@@ -133,6 +133,7 @@ def create_app(store=None, manager=None, qr_manager=None, port=8765):
         return jsonify(task_ids=manager.start(
             data.get("account_ids"), data.get("course_name"),
             data.get("do_homework", False), data.get("api_mode", "chat_completions"),
+            data.get("exam_mode", 0),
         )), 201
 
     @app.post("/api/tasks/<task_id>/stop")

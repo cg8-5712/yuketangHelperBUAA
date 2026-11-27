@@ -70,8 +70,9 @@
           <label>课程范围<select v-model="courseId"><option value="">全部课程</option><option v-for="course in commonCourses" :key="course.id" :value="course.id">{{ course.name }}</option></select></label>
           <p class="hint">单门课程选项来自所选账号共有的课程；先点“查看课程”加载。</p>
           <label class="inline"><input type="checkbox" v-model="doHomework"> 视频后完成选择题和填空题</label>
-          <label v-if="doHomework">AI 接口<select v-model="apiMode"><option value="chat_completions">Chat Completions</option><option value="responses">Responses</option></select></label>
-          <p v-if="doHomework" class="hint">需要根目录 config.json；讨论题需人工确认，网页任务会跳过。</p>
+          <label>考试<select v-model.number="examMode"><option :value="0">跳过</option><option :value="1">只答已开始的考试</option><option :value="2">允许自动开始考试</option></select></label>
+          <label v-if="doHomework || examMode">AI 接口<select v-model="apiMode"><option value="chat_completions">Chat Completions</option><option value="responses">Responses</option></select></label>
+          <p v-if="doHomework || examMode" class="hint">需要根目录 config.json；讨论题需人工确认，网页任务会跳过。交卷只填客观题，主观题留空。</p>
           <button class="primary wide" @click="startTasks" :disabled="busy || !selected.length">启动 {{ selected.length }} 个账号</button>
         </section>
         <section class="panel">

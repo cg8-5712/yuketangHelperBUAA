@@ -8,6 +8,7 @@ from .platform.auth import extract_specific_cookies, getCookies, getUniversityId
 from .platform.client import PlatformClient, PlatformError
 from .platform.courses import CourseAPI
 from .ui import ask_text, choose
+from .workflows.exam import examHelper
 from .workflows.homework import homeworkHelper
 from .workflows.video import VideoTaskError, videoHelper
 
@@ -75,13 +76,21 @@ def main():
     course_index = choose("选择课程", ["全部课程"] + [course.course_name for course in courses])
     selected = courses if course_index == 0 else [courses[course_index - 1]]
     do_homework = choose("作业", ["跳过", "使用 AI 答题"]) == 1
-    homework = None
-    if do_homework:
+    exam_mode = choose("考试", ["跳过", "只答已开始的考试", "允许自动开始考试"])
+    api_mode = "chat_completions"
+    homework = exam = None
+    if do_homework or exam_mode:
         api_choice = choose("AI 接口", ["Chat Completions", "Responses"])
+        api_mode = "responses" if api_choice == 1 else "chat_completions"
+    if do_homework:
         homework = homeworkHelper(
             domain, cookies, user_id, university_id, headers,
-            api_mode="responses" if api_choice == 1 else "chat_completions",
-            client=client,
+            api_mode=api_mode, client=client,
+        )
+    if exam_mode:
+        exam = examHelper(
+            domain, cookies, user_id, university_id, headers,
+            api_mode=api_mode, client=client, auto_start=exam_mode == 2,
         )
 
     video = videoHelper(domain, cookies, user_id, university_id, 12, headers, client=client, debug=args.debug)
@@ -100,6 +109,12 @@ def main():
     if homework is not None:
         for course in selected:
             complete = homework.do_homework(
+                course.classroom_id, course.course_sign, course.course_name
+            )
+            all_complete = all_complete and complete
+    if exam is not None:
+        for course in selected:
+            complete = exam.do_exam(
                 course.classroom_id, course.course_sign, course.course_name
             )
             all_complete = all_complete and complete

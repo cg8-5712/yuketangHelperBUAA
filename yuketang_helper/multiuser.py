@@ -10,6 +10,7 @@ from .platform.client import PlatformClient
 from .platform.courses import CourseAPI
 from .ui import VideoDashboard
 from .workflows.video import videoHelper
+from .workflows.exam import examHelper
 from .workflows.homework import homeworkHelper
 
 
@@ -51,7 +52,7 @@ class TaskManager:
                 if key not in ("thread", "stop_event", "helper")}
 
     def start(self, account_ids, course_name=None, do_homework=False,
-              api_mode="chat_completions"):
+              api_mode="chat_completions", exam_mode=0):
         if not isinstance(account_ids, list) or not account_ids or not all(
             isinstance(account_id, str) for account_id in account_ids
         ):
@@ -63,6 +64,8 @@ class TaskManager:
         accounts = [self.store.get(account_id) for account_id in account_ids]
         if api_mode not in ("chat_completions", "responses"):
             raise ValueError("AI 接口选择无效")
+        if exam_mode not in (0, 1, 2):
+            raise ValueError("考试模式选择无效")
         with self._lock:
             active = sum(task["status"] in ("启动中", "运行中", "停止中")
                          for task in self._tasks.values())
@@ -79,6 +82,7 @@ class TaskManager:
                         "label": account["label"], "status": "启动中",
                         "course": "", "workers": {}, "error": "", "course_name": course_name,
                         "do_homework": bool(do_homework), "api_mode": api_mode,
+                        "exam_mode": int(exam_mode or 0),
                         "stop_event": threading.Event(), "helper": None, "thread": None}
                 self._tasks[task_id] = task
                 result.append(task_id)
@@ -115,6 +119,7 @@ class TaskManager:
             task = self._tasks[task_id]
             account_id, stop_event, course_name = task["account_id"], task["stop_event"], task["course_name"]
             do_homework, api_mode = task["do_homework"], task["api_mode"]
+            exam_mode = task.get("exam_mode", 0)
         try:
             account = self.store.get(account_id)
             client = self._client_for(account)
@@ -173,6 +178,21 @@ class TaskManager:
                         task["course"] = f"{course.course_name} · 习题"
                         task["workers"] = {}
                     complete = homework.do_homework(
+                        course.classroom_id, course.course_sign, course.course_name
+                    ) and complete
+            if exam_mode and not stop_event.is_set():
+                exam = examHelper(
+                    account["domain"], account["cookie"], user_id,
+                    client.university_id, client._headers, api_mode=api_mode,
+                    client=client, stop_event=stop_event, auto_start=exam_mode == 2,
+                )
+                for course in courses:
+                    if stop_event.is_set():
+                        break
+                    with self._lock:
+                        task["course"] = f"{course.course_name} · 考试"
+                        task["workers"] = {}
+                    complete = exam.do_exam(
                         course.classroom_id, course.course_sign, course.course_name
                     ) and complete
             with self._lock:

@@ -9,6 +9,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 AI_CONFIG_PATH = PROJECT_ROOT / "config.json"
 QUESTION_BANK_PATH = PROJECT_ROOT / "question_bank.sqlite3"
 REQUEST_TIMEOUT = (3, 15)
+EXAM_LOGIN_TIMEOUT = (10, 30)
 
 
 def load_ai_config(path=AI_CONFIG_PATH):

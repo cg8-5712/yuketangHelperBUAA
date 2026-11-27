@@ -32,6 +32,24 @@ class PlatformClient:
                 self._local.session.trust_env = False
         return self._local.session
 
+    @property
+    def headers(self):
+        return dict(self._headers)
+
+    @property
+    def provided_session(self):
+        return self._provided_session
+
+    @property
+    def proxy(self):
+        return self._proxy
+
+    def with_domain(self, domain):
+        """Clone this session against another host (for example the exam site)."""
+        return PlatformClient(
+            domain, self.university_id, self._headers,
+            session=self._provided_session, proxy=self._proxy,
+        )
     def url(self, path):
         return path if path.startswith(("https://", "http://")) else f"https://{self.domain}{path}"
 
@@ -70,9 +88,11 @@ class PlatformClient:
         except ValueError as exc:
             raise PlatformError(f"GET {path} 返回了无效 JSON") from exc
 
-    def post_json(self, path, payload, *, check_status=True):
-        # A POST timeout may mean the server accepted the submission. Never retry here.
-        response = self.request("POST", path, json=payload, check_status=check_status)
+    def post_json(self, path, payload, *, check_status=True, timeout=REQUEST_TIMEOUT):
+        # A POST timeout may mean the server accepted the submission. Never
+        # retry here; callers that can safely repeat the call must do it.
+        response = self.request("POST", path, json=payload,
+                                check_status=check_status, timeout=timeout)
         try:
             return response.json()
         except ValueError as exc:

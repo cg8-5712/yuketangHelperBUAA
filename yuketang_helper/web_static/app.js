@@ -4,7 +4,7 @@ createApp({
   data() { return {
     accounts: [], tasks: [], selected: [], courseLists: {}, courseId: '',
     newAccount: {label:'', domain:'', cookie:''}, uaText:'', proxyText:'',
-    doHomework:false, apiMode:'chat_completions',
+    doHomework:false, apiMode:'chat_completions', examMode:0,
     editing:'', replacementCookie:'',
     notice:'', noticeType:'', busy:false, timer:null,
     qrLogin:{open:false,id:'',label:'',domain:'',status:'',qr_image:'',error:'',timer:null},
@@ -101,7 +101,7 @@ createApp({
       await this.act(async()=>{
         await this.api('/api/tasks',{method:'POST',body:JSON.stringify({
           account_ids:this.selected,course_name:this.courseId || null,
-          do_homework:this.doHomework,api_mode:this.apiMode,
+          do_homework:this.doHomework,api_mode:this.apiMode,exam_mode:this.examMode,
         })}); await this.refresh();
       },'任务已启动');
     },
