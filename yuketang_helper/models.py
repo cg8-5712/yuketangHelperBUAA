@@ -19,6 +19,7 @@ class SubmitStatus(str, Enum):
     INCORRECT = "incorrect"
     RATE_LIMITED = "rate_limited"
     FAILED = "failed"
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
